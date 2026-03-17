@@ -157,19 +157,26 @@ async function renderSlide(canvas, bgB64, textContent, slideIdx, totalSlides, ke
     const parts = textContent.split("\n").filter(Boolean);
     const topTxt = parts[0] || "";
     const bottomTxt = parts.slice(1).join(" ");
+    const halfH = H / 2;
 
     ctx.textAlign = "center";
     ctx.lineJoin = "round";
     ctx.miterLimit = 2;
 
-    // Top text - Arial white with black stroke
+    // Top panel text — bottom of upper half
     if (topTxt) {
-      ctx.font = "bold 40px Arial, sans-serif";
+      // Subtle dark gradient at bottom of top panel
+      const tGrd = ctx.createLinearGradient(0, halfH - 120, 0, halfH);
+      tGrd.addColorStop(0, "rgba(0,0,0,0)");
+      tGrd.addColorStop(1, "rgba(0,0,0,0.55)");
+      ctx.fillStyle = tGrd;
+      ctx.fillRect(0, halfH - 120, W, 120);
+
+      ctx.font = "bold 38px Arial, sans-serif";
       const tLines = wrap(ctx, topTxt, maxW);
-      const tH = tLines.length * 52;
-      const tY = H * 0.25 - tH / 2 + 40;
+      const tStartY = halfH - 18 - (tLines.length - 1) * 48;
       tLines.forEach((l, i) => {
-        const y = tY + i * 52;
+        const y = tStartY + i * 48;
         ctx.strokeStyle = "#000000";
         ctx.lineWidth = 8;
         ctx.strokeText(l, W / 2, y);
@@ -178,14 +185,20 @@ async function renderSlide(canvas, bgB64, textContent, slideIdx, totalSlides, ke
       });
     }
 
-    // Bottom text - Arial white with black stroke
+    // Bottom panel text — bottom of lower half
     if (bottomTxt) {
-      ctx.font = "bold 40px Arial, sans-serif";
+      // Subtle dark gradient at bottom of bottom panel
+      const bGrd = ctx.createLinearGradient(0, H - 120, 0, H);
+      bGrd.addColorStop(0, "rgba(0,0,0,0)");
+      bGrd.addColorStop(1, "rgba(0,0,0,0.55)");
+      ctx.fillStyle = bGrd;
+      ctx.fillRect(0, H - 120, W, 120);
+
+      ctx.font = "bold 38px Arial, sans-serif";
       const bLines = wrap(ctx, bottomTxt, maxW);
-      const bH = bLines.length * 52;
-      const bY = H * 0.75 - bH / 2 + 40;
+      const bStartY = H - 18 - (bLines.length - 1) * 48;
       bLines.forEach((l, i) => {
-        const y = bY + i * 52;
+        const y = bStartY + i * 48;
         ctx.strokeStyle = "#000000";
         ctx.lineWidth = 8;
         ctx.strokeText(l, W / 2, y);
