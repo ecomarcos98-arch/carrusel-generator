@@ -42,7 +42,6 @@ const IMAGE_STYLES = [
 async function geminiImage(prompt, refImages, apiKey) {
   if (!apiKey) throw new Error("Ingresá tu API Key de Gemini");
   const parts = [];
-  // Add reference images (expert photo, libre style ref, etc.)
   if (refImages && refImages.length > 0) {
     for (const ref of refImages) {
       if (ref.base64) {
@@ -58,14 +57,23 @@ async function geminiImage(prompt, refImages, apiKey) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts }],
-        generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageMimeType: "image/png" },
+        generationConfig: {
+          responseModalities: ["TEXT", "IMAGE"],
+        },
       }),
     }
   );
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  const ip = (data.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
-  if (!ip) throw new Error("No image generated");
+  if (data.error) throw new Error(`API Error: ${data.error.message} (${data.error.code || ""})`);
+  if (!data.candidates || !data.candidates[0]) {
+    throw new Error("No candidates in response: " + JSON.stringify(data).substring(0, 200));
+  }
+  const resParts = data.candidates[0]?.content?.parts || [];
+  const ip = resParts.find((p) => p.inlineData);
+  if (!ip) {
+    const textParts = resParts.filter(p => p.text).map(p => p.text).join(" ");
+    throw new Error("No image in response. Model said: " + (textParts || "nothing").substring(0, 150));
+  }
   return ip.inlineData.data;
 }
 
@@ -362,6 +370,7 @@ export default function App() {
           bgB64 = await geminiImage(prompt, refImages, apiKey);
         } catch (err) {
           console.warn(`Slide ${i + 1} image failed:`, err);
+          setStatus(`⚠️ Slide ${i + 1} falló: ${err.message}`);
         }
 
         const dataUrl = await renderSlide(canvas, bgB64, text, i, count, keyword, selectedStyle);
