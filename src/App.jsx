@@ -535,7 +535,7 @@ TEXTO: ¿Querés la solución completa?`}
                     style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "rgba(212,168,83,0.3)", border: "1px solid rgba(212,168,83,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#d4a853", cursor: "help", fontWeight: 700 }}
                   >?
                     {tooltipVisible && (
-                      <div style={{ position: "absolute", bottom: 28, right: -10, width: 280, padding: "14px 16px", background: "#1a1a2e", border: "1px solid rgba(212,168,83,0.3)", borderRadius: 10, fontSize: 12, color: "#c9b99a", lineHeight: 1.6, zIndex: 100, boxShadow: "0 8px 30px rgba(0,0,0,0.5)", textAlign: "left", fontWeight: 400 }}>
+                      <div style={{ position: "absolute", bottom: 28, left: 0, width: 280, padding: "14px 16px", background: "#1a1a2e", border: "1px solid rgba(212,168,83,0.3)", borderRadius: 10, fontSize: 12, color: "#c9b99a", lineHeight: 1.6, zIndex: 100, boxShadow: "0 8px 30px rgba(0,0,0,0.5)", textAlign: "left", fontWeight: 400 }}>
                         <strong style={{ color: "#d4a853", display: "block", marginBottom: 6 }}>Formato Antes/Después</strong>
                         En <strong style={{ color: "#e8e0d0" }}>ESCENA:</strong> describí ambos paneles:<br/>
                         <span style={{ color: "#8a7a5a" }}>"Arriba: equipo desmotivado, oficina oscura. Abajo: equipo celebrando, oficina moderna"</span><br/><br/>
