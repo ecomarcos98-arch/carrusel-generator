@@ -19,8 +19,8 @@ const IMAGE_STYLES = [
   {
     id: "before_after",
     name: "🔄 Antes/Después",
-    prompt: "image divided in two horizontal panels (top and bottom). Top panel has desaturated cold tones, gloomy atmosphere. Bottom panel has vibrant warm tones, successful positive atmosphere. Clear thin dividing line between panels. Photorealistic, cinematic lighting",
-    expertPrompt: "The same person from the reference photo must appear in BOTH panels preserving their exact facial features. Top panel shows them in a negative situation, bottom panel shows them thriving",
+    prompt: "digital illustration, vibrant colors, stylized animation style. Image divided in two horizontal panels (top and bottom). Top panel has desaturated cold tones, gloomy atmosphere. Bottom panel has vibrant warm tones, successful positive atmosphere. Clear thin dividing line between panels. High quality digital art, bold colors",
+    expertPrompt: "The same person from the reference photo must appear in BOTH panels as a stylized animated illustration character, preserving their facial features. Top panel shows them in a negative situation, bottom panel shows them thriving",
   },
   {
     id: "caricature",
@@ -158,39 +158,40 @@ async function renderSlide(canvas, bgB64, textContent, slideIdx, totalSlides, ke
     const topTxt = parts[0] || "";
     const bottomTxt = parts.slice(1).join(" ");
 
-    ctx.shadowColor = "rgba(0,0,0,0.9)";
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
+    ctx.textAlign = "center";
+    ctx.lineJoin = "round";
+    ctx.miterLimit = 2;
 
-    // Top text pill
+    // Top text - Arial white with black stroke
     if (topTxt) {
-      ctx.font = "bold 36px 'Segoe UI', sans-serif";
-      const tLines = wrap(ctx, topTxt, maxW - 40);
-      const tH = tLines.length * 48;
-      const tY = H * 0.25 - tH / 2;
-      ctx.shadowColor = "transparent";
-      ctx.fillStyle = "rgba(0,0,0,0.72)";
-      ctx.beginPath(); ctx.roundRect(pad, tY - 14, W - pad * 2, tH + 28, 12); ctx.fill();
-      ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 10;
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      tLines.forEach((l, i) => ctx.fillText(l, W / 2, tY + 24 + i * 48));
+      ctx.font = "bold 40px Arial, sans-serif";
+      const tLines = wrap(ctx, topTxt, maxW);
+      const tH = tLines.length * 52;
+      const tY = H * 0.25 - tH / 2 + 40;
+      tLines.forEach((l, i) => {
+        const y = tY + i * 52;
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 8;
+        ctx.strokeText(l, W / 2, y);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(l, W / 2, y);
+      });
     }
 
-    // Bottom text pill
+    // Bottom text - Arial white with black stroke
     if (bottomTxt) {
-      ctx.font = "bold 36px 'Segoe UI', sans-serif";
-      const bLines = wrap(ctx, bottomTxt, maxW - 40);
-      const bH = bLines.length * 48;
-      const bY = H * 0.75 - bH / 2;
-      ctx.shadowColor = "transparent";
-      ctx.fillStyle = "rgba(0,0,0,0.72)";
-      ctx.beginPath(); ctx.roundRect(pad, bY - 14, W - pad * 2, bH + 28, 12); ctx.fill();
-      ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 10;
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      bLines.forEach((l, i) => ctx.fillText(l, W / 2, bY + 24 + i * 48));
+      ctx.font = "bold 40px Arial, sans-serif";
+      const bLines = wrap(ctx, bottomTxt, maxW);
+      const bH = bLines.length * 52;
+      const bY = H * 0.75 - bH / 2 + 40;
+      bLines.forEach((l, i) => {
+        const y = bY + i * 52;
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 8;
+        ctx.strokeText(l, W / 2, y);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(l, W / 2, y);
+      });
     }
   } else {
     // Standard text overlay
