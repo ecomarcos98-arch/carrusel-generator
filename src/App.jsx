@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 
-const IMAGE_MODEL = "gemini-2.5-flash-preview-04-17";
+const IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const DEFAULT_API_KEY = "";
 
 const IMAGE_STYLES = [
