@@ -1,576 +1,1076 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
-const GEMINI_API_KEY = "AIzaSyCBJvS-sxFyDSeuRsGXQ4CxTfm2drmGHAk";
-const IMAGE_MODEL = "gemini-2.5-flash-preview-04-17";
+// ============================================================
+// NANO BANANO CAROUSEL GENERATOR
+// Full-stack Instagram carousel generator using Gemini 2.5 Flash
+// ============================================================
 
-// ─── Formats ─────────────────────────────────────────────────────────
+// --- UTILITY: Convert file to base64 ---
+const fileToBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
-const FORMATS = [
-  {
-    id: "versus",
-    name: "⚔️ Versus",
-    desc: "Dos paneles con contraste (arriba/abajo)",
-    fields: [
-      { key: "topScene", label: "Panel de arriba (escena)", placeholder: "Ej: hombre frustrado viendo TV con noticias negativas, ambiente oscuro" },
-      { key: "topText", label: "Texto panel arriba", placeholder: "Ej: Hay malas noticias por todas partes." },
-      { key: "bottomScene", label: "Panel de abajo (escena)", placeholder: "Ej: el mismo hombre tranquilo leyendo un libro, luz natural" },
-      { key: "bottomText", label: "Texto panel abajo", placeholder: "Ej: Yo elijo lo que consumo." },
-    ],
-    buildPrompt: (f, expert) => {
-      const expertNote = expert ? "The same person from the reference photo must appear in BOTH panels, preserving their exact facial features." : "The same character must appear in both panels.";
-      return {
-        scene: `Create a square image divided into two horizontal panels (top and bottom), each taking exactly half the image. TOP PANEL: ${f.topScene || "negative scene"}. Dark, tense atmosphere with cold colors. BOTTOM PANEL: ${f.bottomScene || "positive scene"}. Bright, positive atmosphere with warm colors. ${expertNote} There should be a clear thin dividing line between panels. Photorealistic, cinematic lighting. Do NOT include any text, words, or letters in the image.`,
-        text: f.topText && f.bottomText ? `${f.topText}\n---SPLIT---\n${f.bottomText}` : f.topText || f.bottomText || "",
-        layout: "versus",
-      };
-    },
-  },
-  {
-    id: "before_after",
-    name: "🔄 Antes y Después",
-    desc: "Transformación con contraste",
-    fields: [
-      { key: "beforeScene", label: "ANTES (escena)", placeholder: "Ej: equipo de ventas desmotivado, oficina desordenada, gráficos bajando" },
-      { key: "beforeText", label: "Texto ANTES", placeholder: "Ej: Antes: sin proceso de ventas" },
-      { key: "afterScene", label: "DESPUÉS (escena)", placeholder: "Ej: equipo celebrando, oficina moderna, gráficos subiendo" },
-      { key: "afterText", label: "Texto DESPUÉS", placeholder: "Ej: Después: equipo que factura x3" },
-    ],
-    buildPrompt: (f, expert) => {
-      const expertNote = expert ? "The same person from the reference photo must appear in BOTH panels." : "The same character appears in both.";
-      return {
-        scene: `Create a square image divided into two horizontal panels (top and bottom). TOP PANEL labeled "ANTES": ${f.beforeScene || "negative before state"}. Desaturated, gloomy atmosphere. BOTTOM PANEL labeled "DESPUÉS": ${f.afterScene || "positive after state"}. Vibrant, successful atmosphere. ${expertNote} Clear dividing line between panels. Photorealistic, cinematic. Do NOT include any text or words in the image.`,
-        text: f.beforeText && f.afterText ? `${f.beforeText}\n---SPLIT---\n${f.afterText}` : f.beforeText || f.afterText || "",
-        layout: "versus",
-      };
-    },
-  },
-  {
-    id: "meme",
-    name: "😂 Meme",
-    desc: "Formato meme con texto arriba/abajo",
-    fields: [
-      { key: "scene", label: "Escena / Reacción", placeholder: "Ej: el experto con cara de sorpresa mirando su celular" },
-      { key: "topText", label: "Texto arriba", placeholder: 'Ej: Cuando tu mejor vendedor te dice "me voy"' },
-      { key: "bottomText", label: "Texto abajo", placeholder: "Ej: Y te das cuenta que no tenés proceso de retención" },
-    ],
-    buildPrompt: (f, expert) => {
-      const expertNote = expert ? "The main character must look exactly like the person in the reference photo." : "";
-      return {
-        scene: `Create a square image showing: ${f.scene || "expressive person reacting"}. ${expertNote} The character should have a very expressive face and clear body language that conveys emotion. Photorealistic or slightly stylized, meme-worthy composition. Cinematic lighting. Leave clear space at the top and bottom of the image for text overlay. Do NOT include any text or words in the image.`,
-        text: f.topText && f.bottomText ? `${f.topText}\n---MEME---\n${f.bottomText}` : f.topText || f.bottomText || "",
-        layout: "meme",
-      };
-    },
-  },
-  {
-    id: "quote",
-    name: "💬 Cita / Quote",
-    desc: "Frase destacada sobre fondo visual",
-    fields: [
-      { key: "scene", label: "Fondo / Ambiente", placeholder: "Ej: el experto de pie mirando por un ventanal hacia la ciudad de noche" },
-      { key: "quote", label: "La frase / cita", placeholder: 'Ej: "El líder que no entrena a su equipo, entrena a su competencia."' },
-      { key: "attribution", label: "Atribución (opcional)", placeholder: "Ej: — César Jorquera" },
-    ],
-    buildPrompt: (f, expert) => {
-      const expertNote = expert ? "The person from the reference photo should appear in the scene, preserving their facial features." : "";
-      return {
-        scene: `Create a square image: ${f.scene || "inspirational atmospheric background"}. ${expertNote} Dark, moody, cinematic atmosphere with dramatic lighting. The composition should have a clear area (preferably center or lower third) where text can be overlaid readably. Photorealistic. Do NOT include any text, words, quotes, or letters in the image.`,
-        text: f.quote ? (f.attribution ? `${f.quote}\n${f.attribution}` : f.quote) : "",
-        layout: "quote",
-      };
-    },
-  },
-  {
-    id: "simple",
-    name: "🎬 Escena Simple",
-    desc: "Un panel con el experto en acción",
-    fields: [
-      { key: "scene", label: "Descripción de la escena", placeholder: "Ej: el experto hablando con confianza frente a un equipo de ventas en una sala de reuniones moderna" },
-      { key: "title", label: "Título", placeholder: "Ej: Los 3 errores que matan tus ventas" },
-      { key: "body", label: "Texto secundario (opcional)", placeholder: "Ej: Y cómo solucionarlos hoy mismo" },
-    ],
-    buildPrompt: (f, expert) => {
-      const expertNote = expert ? "The main character must look exactly like the person in the reference photo, preserving exact facial features and likeness." : "";
-      return {
-        scene: `Create a square image: ${f.scene || "professional in a modern office"}. ${expertNote} Photorealistic, cinematic lighting, dark moody atmosphere. The lower portion of the image should be slightly darker to allow text overlay. Do NOT include any text, words, or letters in the image.`,
-        text: f.title ? (f.body ? `${f.title}\n${f.body}` : f.title) : "",
-        layout: "simple",
-      };
-    },
-  },
-];
+// --- UTILITY: Download a single image ---
+const downloadImage = (dataUrl, filename) => {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
 
-// ─── API ─────────────────────────────────────────────────────────────
+// --- UTILITY: Download all as ZIP using JSZip from CDN ---
+const downloadAllAsZip = async (slides) => {
+  const script = document.createElement("script");
+  script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+  document.head.appendChild(script);
+  await new Promise((r) => (script.onload = r));
+  const zip = new window.JSZip();
+  slides.forEach((s, i) => {
+    const base64 = s.imageData.split(",")[1] || s.imageData;
+    zip.file(`slide_${i + 1}.png`, base64, { base64: true });
+  });
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  downloadImage(url, "carousel_nano_banano.zip");
+  URL.revokeObjectURL(url);
+};
 
-async function geminiImage(prompt, refBase64, refMime) {
-  const parts = [];
-  if (refBase64) parts.push({ inlineData: { mimeType: refMime || "image/jpeg", data: refBase64 } });
-  parts.push({ text: prompt });
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseModalities: ["IMAGE","TEXT"], imageMimeType: "image/png" } }) }
-  );
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  const ip = (data.candidates?.[0]?.content?.parts||[]).find(p=>p.inlineData);
-  if (!ip) throw new Error("No image generated");
-  return ip.inlineData.data;
-}
+// --- TEXT SANITIZER: Strips markdown, special chars, and formatting artifacts ---
+const sanitizeText = (raw) => {
+  return raw
+    .replace(/\*\*|__/g, "")           // Remove bold markdown
+    .replace(/\*|_/g, "")              // Remove italic markdown
+    .replace(/^[-–—•]\s*/gm, "")       // Remove bullet dashes
+    .replace(/^#{1,6}\s*/gm, "")       // Remove markdown headers
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // [link text](url) → link text
+    .replace(/`/g, "")                 // Remove backticks
+    .replace(/\n{3,}/g, "\n\n")        // Collapse excessive newlines
+    .trim();
+};
 
-function fileToBase64(file) {
-  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
-}
+// --- REGEX EXTRACTOR: Pulls Texto: and Escena: fields if present ---
+const extractFields = (block) => {
+  const textoMatch = block.match(/(?:texto|text)\s*:\s*(.+?)(?=(?:escena|scene|contexto|context|estilo|style)\s*:|$)/is);
+  const escenaMatch = block.match(/(?:escena|scene)\s*:\s*(.+?)(?=(?:texto|text|contexto|context|estilo|style)\s*:|$)/is);
 
-// ─── Canvas Text Rendering ──────────────────────────────────────────
+  if (textoMatch) {
+    // Structured format detected — extract only tagged fields
+    return {
+      displayText: sanitizeText(textoMatch[1].trim()),
+      sceneOverride: escenaMatch ? sanitizeText(escenaMatch[1].trim()) : null,
+    };
+  }
 
-function loadImg(src) { return new Promise((res,rej) => { const i = new Image(); i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
+  // No structured tags — treat the whole block as display text
+  return {
+    displayText: sanitizeText(block.trim()),
+    sceneOverride: null,
+  };
+};
 
-function wrap(ctx, text, maxW) {
-  const words = text.split(" "), lines = []; let cur = "";
-  for (const w of words) { const t = cur ? cur+" "+w : w; if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
-  if (cur) lines.push(cur); return lines;
-}
+// --- SCRIPT PROCESSOR: Splits the script into narrative segments ---
+const processScript = (rawScript, numSlides, keyword) => {
+  // Split by double newlines, numbered lines, or "Slide" markers
+  const lines = rawScript
+    .split(/\n{2,}|(?=^(?:slide|diapositiva|\d+[\.\)\-])\s)/im)
+    .map((l) => l.trim())
+    .filter(Boolean);
 
-async function renderSlide(canvas, bgB64, textContent, layout, slideIdx, total, keyword) {
-  const ctx = canvas.getContext("2d");
-  const W = 1080, H = 1080;
-  canvas.width = W; canvas.height = H;
+  const segments = [];
 
-  // Background
-  if (bgB64) {
-    try {
-      const img = await loadImg("data:image/png;base64," + bgB64);
-      const sc = Math.max(W/img.width, H/img.height);
-      ctx.drawImage(img, (W-img.width*sc)/2, (H-img.height*sc)/2, img.width*sc, img.height*sc);
-    } catch { ctx.fillStyle="#0a0a0a"; ctx.fillRect(0,0,W,H); }
-  } else { ctx.fillStyle="#0a0a0a"; ctx.fillRect(0,0,W,H); }
-
-  if (!textContent) return canvas.toDataURL("image/png");
-
-  const pad = 50;
-  const maxW = W - pad*2 - 20;
-
-  ctx.shadowColor = "rgba(0,0,0,0.9)";
-  ctx.shadowBlur = 10;
-  ctx.shadowOffsetX = 2;
-  ctx.shadowOffsetY = 2;
-
-  if (layout === "versus" && textContent.includes("---SPLIT---")) {
-    // ─── VERSUS / BEFORE-AFTER ───
-    const [topTxt, bottomTxt] = textContent.split("---SPLIT---").map(s=>s.trim());
-
-    // Top text - white on dark pill
-    if (topTxt) {
-      ctx.font = "bold 36px 'Segoe UI', sans-serif";
-      const tLines = wrap(ctx, topTxt, maxW - 40);
-      const tH = tLines.length * 48;
-      const tY = H * 0.25 - tH/2;
-
-      // Background pill
-      ctx.shadowColor = "transparent"; ctx.shadowBlur = 0;
-      ctx.fillStyle = "rgba(0,0,0,0.75)";
-      ctx.beginPath(); ctx.roundRect(pad, tY - 16, W - pad*2, tH + 32, 12); ctx.fill();
-      ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 10;
-
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      tLines.forEach((l,i) => ctx.fillText(l, W/2, tY + 26 + i*48));
+  if (lines.length >= numSlides) {
+    for (let i = 0; i < numSlides; i++) {
+      segments.push(lines[i]);
     }
-
-    // Bottom text
-    if (bottomTxt) {
-      ctx.font = "bold 36px 'Segoe UI', sans-serif";
-      const bLines = wrap(ctx, bottomTxt, maxW - 40);
-      const bH = bLines.length * 48;
-      const bY = H * 0.75 - bH/2;
-
-      ctx.shadowColor = "transparent"; ctx.shadowBlur = 0;
-      ctx.fillStyle = "rgba(0,0,0,0.75)";
-      ctx.beginPath(); ctx.roundRect(pad, bY - 16, W - pad*2, bH + 32, 12); ctx.fill();
-      ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 10;
-
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      bLines.forEach((l,i) => ctx.fillText(l, W/2, bY + 26 + i*48));
-    }
-
-  } else if (layout === "meme" && textContent.includes("---MEME---")) {
-    // ─── MEME ───
-    const [topTxt, bottomTxt] = textContent.split("---MEME---").map(s=>s.trim());
-
-    ctx.textAlign = "center";
-    ctx.font = "bold 40px 'Segoe UI', sans-serif";
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 4;
-
-    if (topTxt) {
-      const tLines = wrap(ctx, topTxt.toUpperCase(), maxW);
-      tLines.forEach((l,i) => {
-        const y = 60 + i * 50;
-        ctx.strokeText(l, W/2, y);
-        ctx.fillText(l, W/2, y);
-      });
-    }
-    if (bottomTxt) {
-      const bLines = wrap(ctx, bottomTxt.toUpperCase(), maxW);
-      const startY = H - 30 - (bLines.length - 1) * 50;
-      bLines.forEach((l,i) => {
-        const y = startY + i * 50;
-        ctx.strokeText(l, W/2, y);
-        ctx.fillText(l, W/2, y);
-      });
-    }
-
-  } else if (layout === "quote") {
-    // ─── QUOTE ───
-    const lines = textContent.split("\n").filter(Boolean);
-    const quote = lines[0] || "";
-    const attr = lines[1] || "";
-
-    // Dark overlay for readability
-    ctx.shadowColor = "transparent"; ctx.shadowBlur = 0;
-    const grd = ctx.createLinearGradient(0, H*0.3, 0, H);
-    grd.addColorStop(0, "rgba(0,0,0,0.0)");
-    grd.addColorStop(0.3, "rgba(0,0,0,0.6)");
-    grd.addColorStop(1, "rgba(0,0,0,0.8)");
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, H*0.3, W, H*0.7);
-    ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 10;
-
-    // Quote mark
-    ctx.fillStyle = "#d4a853";
-    ctx.font = "bold 120px Georgia, serif";
-    ctx.textAlign = "left";
-    ctx.fillText("\u201C", pad, H * 0.52);
-
-    // Quote text
-    ctx.font = "italic 38px Georgia, serif";
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "left";
-    const qLines = wrap(ctx, quote, maxW - 30);
-    qLines.forEach((l,i) => ctx.fillText(l, pad + 20, H * 0.56 + i * 52));
-
-    // Attribution
-    if (attr) {
-      ctx.font = "bold 26px 'Segoe UI', sans-serif";
-      ctx.fillStyle = "#d4a853";
-      ctx.fillText(attr, pad + 20, H * 0.56 + qLines.length * 52 + 20);
-    }
-
   } else {
-    // ─── SIMPLE / DEFAULT ───
-    const lines = textContent.split("\n").filter(Boolean);
-    const title = lines[0] || "";
-    const body = lines.slice(1).join(" ");
-
-    // Gradient overlay at bottom
-    ctx.shadowColor = "transparent"; ctx.shadowBlur = 0;
-    const grd = ctx.createLinearGradient(0, H*0.45, 0, H);
-    grd.addColorStop(0, "rgba(0,0,0,0.0)");
-    grd.addColorStop(0.25, "rgba(0,0,0,0.65)");
-    grd.addColorStop(1, "rgba(0,0,0,0.88)");
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, H*0.45, W, H*0.55);
-    ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 10;
-
-    // Accent line
-    ctx.shadowColor = "transparent";
-    ctx.fillStyle = "#d4a853";
-    ctx.fillRect(pad, H*0.68, 50, 3);
-    ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 10;
-
-    // Title
-    ctx.textAlign = "left";
-    ctx.font = "bold 46px 'Segoe UI', sans-serif";
-    ctx.fillStyle = "#ffffff";
-    const tLines = wrap(ctx, title, maxW);
-    let y = H * 0.71;
-    tLines.forEach((l,i) => { ctx.fillText(l, pad + 4, y + i*56); });
-    y += tLines.length * 56 + 10;
-
-    // Body
-    if (body) {
-      ctx.font = "30px 'Segoe UI', sans-serif";
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      const bLines = wrap(ctx, body, maxW);
-      bLines.forEach((l,i) => ctx.fillText(l, pad + 4, y + i*42));
-      y += bLines.length * 42 + 10;
-    }
-
-    // CTA keyword
-    const isLast = slideIdx === total - 1;
-    if (isLast && keyword) {
-      y += 8;
-      ctx.shadowColor = "transparent"; ctx.shadowBlur = 0;
-      ctx.font = "bold 36px 'Segoe UI', sans-serif";
-      const kw = keyword.toUpperCase();
-      const kwW = ctx.measureText(kw).width + 50;
-      ctx.fillStyle = "#d4a853";
-      ctx.beginPath(); ctx.roundRect(pad + 4, y, kwW, 52, 8); ctx.fill();
-      ctx.fillStyle = "#0a0a0a";
-      ctx.fillText(kw, pad + 29, y + 38);
-      ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.font = "20px 'Segoe UI', sans-serif";
-      ctx.fillText("↑ Comenta esta palabra", pad + 4, y + 78);
+    const words = sanitizeText(rawScript).split(/\s+/);
+    const perSlide = Math.ceil(words.length / numSlides);
+    for (let i = 0; i < numSlides; i++) {
+      segments.push(words.slice(i * perSlide, (i + 1) * perSlide).join(" "));
     }
   }
 
-  // Reset
-  ctx.shadowColor = "transparent"; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+  // Tag each segment with its narrative role + extract clean text
+  return segments.map((rawBlock, i) => {
+    const { displayText, sceneOverride } = extractFields(rawBlock);
+    let role, placement, sceneHint;
 
-  // Slide counter
-  ctx.textAlign = "right";
-  ctx.fillStyle = "rgba(255,255,255,0.4)";
-  ctx.font = "bold 18px 'Segoe UI', sans-serif";
-  ctx.fillText(`${slideIdx+1}/${total}`, W-24, 28);
+    if (i === 0) {
+      role = "HOOK";
+      placement = "CENTER";
+      sceneHint = "The character is looking directly at the viewer with an intense, provocative expression — raised eyebrow, slight smirk, confrontational energy. Dramatic close-up, dynamic angle from slightly below.";
+    } else if (i === numSlides - 1) {
+      role = "CTA";
+      placement = "CENTER";
+      sceneHint = "The character is pointing directly at the viewer with a big confident smile, inviting and energetic body language. Open posture, bright and vibrant background with high energy.";
+    } else if (i <= Math.floor(numSlides / 2)) {
+      role = "PROBLEM";
+      placement = "BOTTOM";
+      sceneHint = "The character has a frustrated, disappointed, or concerned facial expression — furrowed brow, maybe arms crossed or palm on forehead. Moody atmospheric lighting, darker tones.";
+    } else {
+      role = "SOLUTION";
+      placement = "TOP";
+      sceneHint = "The character is smiling confidently with an 'I've got the answer' expression — finger raised making a point, or gesturing with conviction. Bright uplifting lighting, optimistic atmosphere.";
+    }
 
-  return canvas.toDataURL("image/png");
-}
+    // Use scene override from structured input if available
+    if (sceneOverride) sceneHint = sceneOverride;
 
-// ─── ZIP ─────────────────────────────────────────────────────────────
-function createZip(files){const L=[],C=[];let o=0;for(const f of files){const n=new TextEncoder().encode(f.name),d=f.data,l=new Uint8Array(30+n.length+d.length),v=new DataView(l.buffer);v.setUint32(0,0x04034b50,1);v.setUint16(4,20,1);v.setUint16(6,0,1);v.setUint16(8,0,1);v.setUint16(10,0,1);v.setUint16(12,0,1);v.setUint32(14,0,1);v.setUint32(18,d.length,1);v.setUint32(22,d.length,1);v.setUint16(26,n.length,1);v.setUint16(28,0,1);l.set(n,30);l.set(d,30+n.length);L.push(l);const c=new Uint8Array(46+n.length),w=new DataView(c.buffer);w.setUint32(0,0x02014b50,1);w.setUint16(4,20,1);w.setUint16(6,20,1);w.setUint16(8,0,1);w.setUint16(10,0,1);w.setUint16(12,0,1);w.setUint16(14,0,1);w.setUint32(16,0,1);w.setUint32(20,d.length,1);w.setUint32(24,d.length,1);w.setUint16(28,n.length,1);w.setUint16(30,0,1);w.setUint16(32,0,1);w.setUint16(34,0,1);w.setUint16(36,0,1);w.setUint32(38,0,1);w.setUint32(42,o,1);c.set(n,46);C.push(c);o+=l.length;}const s=C.reduce((a,c)=>a+c.length,0),e=new Uint8Array(22),ev=new DataView(e.buffer);ev.setUint32(0,0x06054b50,1);ev.setUint16(4,0,1);ev.setUint16(6,0,1);ev.setUint16(8,files.length,1);ev.setUint16(10,files.length,1);ev.setUint32(12,s,1);ev.setUint32(16,o,1);ev.setUint16(20,0,1);const z=new Uint8Array(o+s+22);let p=0;for(const l of L){z.set(l,p);p+=l.length;}for(const c of C){z.set(c,p);p+=c.length;}z.set(e,p);return z;}
-function b64u8(b){const n=atob(b),a=new Uint8Array(n.length);for(let i=0;i<n.length;i++)a[i]=n.charCodeAt(i);return a;}
+    // Append CTA keyword if missing on last slide
+    let finalText = displayText;
+    if (role === "CTA" && !finalText.includes(keyword)) {
+      finalText = `${finalText}\n\nComenta "${keyword}"`;
+    }
 
-// ─── Styles ──────────────────────────────────────────────────────────
-const lbl={display:"block",marginBottom:6,fontSize:12,color:"#a89870",textTransform:"uppercase",letterSpacing:1.5};
-const inp={width:"100%",padding:"10px 12px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(212,168,83,0.2)",borderRadius:8,color:"#e8e0d0",fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
+    return { index: i, role, text: finalText, placement, sceneHint };
+  });
+};
 
-// ─── App ─────────────────────────────────────────────────────────────
-export default function App() {
-  const [slides, setSlides] = useState([{ formatId: "simple", fields: {} }]);
-  const [keyword, setKeyword] = useState("");
-  const [expertPhoto, setExpertPhoto] = useState(null);
-  const [status, setStatus] = useState("");
-  const [progress, setProgress] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [images, setImages] = useState([]);
-  const [idx, setIdx] = useState(0);
-  const [generating, setGenerating] = useState(false);
-  const canvasRef = useRef(null);
-  const fileRef = useRef(null);
+// --- STYLE PRESETS ---
+const STYLES = {
+  gta: {
+    label: "GTA V / Novela Gráfica",
+    prompt: "Grand Theft Auto V loading screen art style. Hard cel-shading shadows, thick black ink outlines, high contrast, saturated colors, dramatic angles. The character should look like a stylized GTA V cover illustration with bold graphic novel aesthetics.",
+    typography: "Use Impact or a bold condensed sans-serif font. ALL CAPS. The text must be WHITE with a thick BLACK outline/stroke around each letter (like meme/YouTube thumbnail style). Do NOT use the GTA stylized cursive font. Use plain, heavy, condensed Impact-style typography for maximum readability.",
+  },
+  pixar: {
+    label: "Pixar / Disney 3D",
+    prompt: "Pixar and Disney 3D animated movie style. Smooth digital rendering, slightly exaggerated proportions, big expressive eyes, warm magical lighting with soft ambient glow, subsurface scattering on skin. The character should look like a Pixar movie protagonist — charming, polished, and cinematic.",
+    typography: "Use a friendly, rounded bold sans-serif font. White or bright colored text with a soft drop shadow for depth and legibility.",
+  },
+  retro: {
+    label: "Retro Comic 1950s",
+    prompt: "Classic 1950s-1960s Marvel/DC comic book style. Visible halftone printing dots (Ben-Day dots), limited vintage color palette (muted reds, yellows, blues), thick black ink outlines, hand-drawn crosshatching, aged paper texture. The character should look like a Golden Age comic book hero illustration.",
+    typography: "Use bold comic book caption box typography. Yellow or white text on a rectangular colored caption box, with thick black outlines on the letters, classic comic book style.",
+  },
+  caricatura: {
+    label: "Caricatura",
+    prompt: "Exaggerated caricature illustration style. Oversized head with emphasized facial features, expressive cartoon proportions, bold outlines, vibrant flat colors, humorous and dynamic poses. The character should be a recognizable but playfully exaggerated caricature version of the reference person.",
+    typography: "Use bold, playful hand-drawn style lettering. Bright colored text with dark outlines, slightly uneven for a fun cartoon feel.",
+  },
+  libre: {
+    label: "🎨 Libre (Subí tu estilo)",
+    prompt: "CUSTOM_STYLE",
+    typography: "Use Impact or a bold condensed sans-serif font. ALL CAPS. The text must be WHITE with a thick BLACK outline/stroke around each letter for maximum readability.",
+  },
+};
 
-  const addSlide = () => setSlides([...slides, { formatId: "simple", fields: {} }]);
-  const removeSlide = (i) => { if (slides.length > 1) setSlides(slides.filter((_,j)=>j!==i)); };
-  const updateSlide = (i, key, val) => {
-    const s = [...slides];
-    if (key === "formatId") s[i] = { formatId: val, fields: {} };
-    else { s[i] = { ...s[i], fields: { ...s[i].fields, [key]: val } }; }
-    setSlides(s);
+// ============================================================
+// BUILD THE PROMPT FOR EACH SLIDE (NANO BANANO / GEMINI FLASH)
+// ARCHITECTURE:
+// - The reference photo is used as a MODEL to redraw the person
+//   in the selected artistic style (NOT pasted as-is).
+// - Scene/style instructions are BACKGROUND context only.
+// - RENDER_TEXT is the ONLY text that appears on the image.
+// ============================================================
+const buildSlidePrompt = (segment, style, totalSlides) => {
+  const styleData = STYLES[style] || STYLES.gta;
+  const typographyPrompt = styleData.typography;
+
+  // For "libre" style, the visual style comes from the uploaded reference image
+  const isLibre = style === "libre";
+  const styleInstruction = isLibre
+    ? "Match the EXACT artistic style, color palette, rendering technique, and visual mood shown in the SECOND reference image (the style reference). Replicate that style precisely for the entire slide."
+    : styleData.prompt;
+
+  const cleanText = segment.text
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return `Generate a 1080x1080 square Instagram carousel slide image.
+
+[CHARACTER DESIGN — USE FIRST REFERENCE IMAGE AS FACE MODEL ONLY]
+Study the FIRST reference image (the person's photo) carefully: note their face shape, hairstyle, hair color, skin tone, facial hair, and distinguishing features.
+Now REDRAW this person entirely from scratch in the following artistic style: ${styleInstruction}
+Do NOT paste, overlay, collage, or photoshop the reference photo into the image. The person must be fully illustrated/rendered in the artistic style — as if an artist drew them from the reference.
+The character must be RECOGNIZABLE as the same person but rendered 100% in the chosen art style.
+
+[CHARACTER EXPRESSION & POSE — DO NOT RENDER AS TEXT]
+${segment.sceneHint}
+
+[VISUAL COMPOSITION — DO NOT RENDER AS TEXT]
+${isLibre ? "Replicate the exact style from the second reference image for backgrounds, lighting, colors, and overall composition." : `Scene style: ${styleInstruction}`}
+The entire image (background, character, typography) must be cohesive in the same artistic style.
+
+[TEXT RENDERING — THIS IS THE ONLY TEXT THAT GOES ON THE IMAGE]
+RENDER_TEXT: "${cleanText}"
+Place this text at the ${segment.placement} of the image.
+TYPOGRAPHY STYLE: ${typographyPrompt}
+
+STRICT RULES:
+- The character must be DRAWN/ILLUSTRATED in the art style, NOT a real photo.
+- ONLY render the exact text inside the RENDER_TEXT quotes on the image.
+- Do NOT render any words from the instructions, labels, or section headers.
+- Do NOT add slide numbers, counters, or pagination like "1/5".
+- The character's facial expression must match the mood of the text.
+- Text must be large enough to read on a phone screen.
+- The result must look like a premium illustrated Instagram carousel slide.`;
+};
+
+// ============================================================
+// API CALLER: Sends request to Gemini 2.5 Flash (Nano Banano)
+// - First image: expert face reference (for identity)
+// - Second image (libre only): style visual reference
+// ============================================================
+const generateSlide = async (apiKey, referenceImageBase64, segment, style, totalSlides, model, styleRefBase64) => {
+  const prompt = buildSlidePrompt(segment, style, totalSlides);
+
+  // Build parts array: expert photo first, then prompt, then optional style ref
+  const parts = [
+    {
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: referenceImageBase64,
+      },
+    },
+  ];
+
+  // For "libre" style, add the style reference as a second image
+  if (style === "libre" && styleRefBase64) {
+    parts.push({
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: styleRefBase64,
+      },
+    });
+  }
+
+  parts.push({ text: prompt });
+
+  const requestBody = {
+    contents: [{ parts }],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+    },
   };
 
-  const generate = useCallback(async () => {
-    if (slides.length < 1) return;
-    setGenerating(true); setImages([]); setIdx(0);
-    setTotal(slides.length); setProgress(0);
-    const canvas = canvasRef.current || document.createElement("canvas");
-    canvasRef.current = canvas;
-    const results = [];
+  // Use the selected model for the API call
+  const modelId = model || "gemini-2.5-flash-image";
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    }
+  );
 
-    try {
-      for (let i = 0; i < slides.length; i++) {
-        setStatus(`Generando slide ${i+1} de ${slides.length}...`);
-        setProgress(i);
-        const s = slides[i];
-        const fmt = FORMATS.find(f=>f.id===s.formatId);
-        const built = fmt.buildPrompt(s.fields, !!expertPhoto);
-        let bgB64 = null;
-        try {
-          bgB64 = await geminiImage(built.scene, expertPhoto?.base64||null, expertPhoto?.mimeType||null);
-        } catch(e) { console.warn(`Slide ${i+1} image failed:`, e); }
-        const dataUrl = await renderSlide(canvas, bgB64, built.text, built.layout, i, slides.length, keyword);
-        results.push({ dataUrl, bgB64, layout: built.layout, failed: !bgB64 });
-        setImages([...results]);
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`API Error (${response.status}): ${err}`);
+  }
+
+  const data = await response.json();
+
+  // Extract the generated image from response
+  const candidates = data.candidates || [];
+  for (const candidate of candidates) {
+    const parts = candidate.content?.parts || [];
+    for (const part of parts) {
+      if (part.inlineData) {
+        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       }
-      setProgress(slides.length);
-      const fails = results.filter(r=>r.failed).length;
-      setStatus(fails ? `Listo — ${fails} sin imagen (fondo oscuro)` : "¡Carrusel listo!");
-    } catch(e) { setStatus(`Error: ${e.message}`); }
-    finally { setGenerating(false); }
-  }, [slides, keyword, expertPhoto]);
+    }
+  }
 
-  const retrySlide = useCallback(async (si) => {
-    setGenerating(true); setStatus(`Reintentando slide ${si+1}...`);
-    const canvas = canvasRef.current || document.createElement("canvas");
-    const s = slides[si];
-    const fmt = FORMATS.find(f=>f.id===s.formatId);
-    const built = fmt.buildPrompt(s.fields, !!expertPhoto);
+  throw new Error("No image returned from Nano Banano. The model may not have generated an image for this prompt.");
+};
+
+// ============================================================
+// MAIN APPLICATION COMPONENT
+// ============================================================
+export default function NanoBananoCarousel() {
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [expertPhoto, setExpertPhoto] = useState(null);
+  const [expertPreview, setExpertPreview] = useState(null);
+  const [keyword, setKeyword] = useState("");
+  const [numSlides, setNumSlides] = useState(5);
+  const [script, setScript] = useState("");
+  const [style, setStyle] = useState("gta");
+  const [styleRefPhoto, setStyleRefPhoto] = useState(null);
+  const [styleRefPreview, setStyleRefPreview] = useState(null);
+  const [model, setModel] = useState("gemini-2.5-flash-image");
+  const [slides, setSlides] = useState([]);
+  const [generating, setGenerating] = useState(false);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [totalToGenerate, setTotalToGenerate] = useState(0);
+  const [error, setError] = useState("");
+  const [log, setLog] = useState([]);
+  const fileInputRef = useRef(null);
+  const styleRefInputRef = useRef(null);
+  const cancelRef = useRef(false);
+
+  // Load saved API key from persistent storage on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await window.storage.get("nano-banano-api-key");
+        if (result && result.value) {
+          setApiKey(result.value);
+          setApiKeySaved(true);
+        }
+      } catch (e) {
+        // No saved key, that's fine
+      }
+    })();
+  }, []);
+
+  // Save API key to persistent storage when it changes
+  const handleApiKeyChange = async (newKey) => {
+    setApiKey(newKey);
+    setApiKeySaved(false);
+    if (newKey.trim()) {
+      try {
+        await window.storage.set("nano-banano-api-key", newKey.trim());
+        setApiKeySaved(true);
+      } catch (e) {
+        // Storage not available, key works for this session only
+      }
+    }
+  };
+
+  const addLog = useCallback((msg) => {
+    setLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  }, []);
+
+  const handleCancel = () => {
+    cancelRef.current = true;
+    setGenerating(false);
+    setLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ Generación cancelada por el usuario.`]);
+  };
+
+  const handlePhotoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setExpertPhoto(file);
+      const url = URL.createObjectURL(file);
+      setExpertPreview(url);
+    }
+  };
+
+  const handleStyleRefUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setStyleRefPhoto(file);
+      const url = URL.createObjectURL(file);
+      setStyleRefPreview(url);
+    }
+  };
+
+  const handleGenerate = async () => {
+    setError("");
+    setLog([]);
+    setSlides([]);
+
+    // Validation
+    if (!apiKey.trim()) return setError("Ingresa tu API Key de Google AI Studio.");
+    if (!expertPhoto) return setError("Sube la foto del experto.");
+    if (!keyword.trim()) return setError("Ingresa la palabra clave del CTA.");
+    if (!script.trim()) return setError("Pega el guion del carrusel.");
+    if (style === "libre" && !styleRefPhoto) return setError("El estilo LIBRE requiere una imagen de referencia visual.");
+
+    setGenerating(true);
+    setTotalToGenerate(numSlides);
+    setCurrentSlide(0);
+    cancelRef.current = false;
+
     try {
-      const bgB64 = await geminiImage(built.scene, expertPhoto?.base64||null, expertPhoto?.mimeType||null);
-      const dataUrl = await renderSlide(canvas, bgB64, built.text, built.layout, si, slides.length, keyword);
-      const u = [...images]; u[si] = { dataUrl, bgB64, layout: built.layout, failed: false }; setImages(u);
-      setStatus("¡Slide regenerado!");
-    } catch(e) { setStatus(`Error: ${e.message}`); }
-    finally { setGenerating(false); }
-  }, [slides, keyword, expertPhoto, images]);
+      addLog("Codificando imagen de referencia en Base64...");
+      const base64Image = await fileToBase64(expertPhoto);
 
-  const downloadZip = useCallback(() => {
-    const f = images.map((img,i)=>({ name:`slide_${String(i+1).padStart(2,"0")}.png`, data:b64u8(img.dataUrl.split(",")[1]) }));
-    const z = createZip(f);
-    const u = URL.createObjectURL(new Blob([z],{type:"application/zip"}));
-    const a = document.createElement("a"); a.href=u; a.download=`carrusel_${Date.now()}.zip`; a.click(); URL.revokeObjectURL(u);
-  }, [images]);
+      let styleRefBase64 = null;
+      if (style === "libre" && styleRefPhoto) {
+        addLog("Codificando imagen de estilo visual en Base64...");
+        styleRefBase64 = await fileToBase64(styleRefPhoto);
+      }
+
+      addLog(`Procesando guion en ${numSlides} segmentos narrativos...`);
+      const segments = processScript(script, numSlides, keyword);
+
+      segments.forEach((seg, i) => {
+        addLog(`  Slide ${i + 1}: [${seg.role}] "${seg.text.substring(0, 50)}..."`);
+      });
+
+      // Generate slides sequentially to avoid rate limits
+      for (let i = 0; i < segments.length; i++) {
+        // Check if user cancelled
+        if (cancelRef.current) break;
+
+        setCurrentSlide(i + 1);
+        addLog(`Generando Slide ${i + 1}/${numSlides} (${segments[i].role})...`);
+
+        try {
+          const imageData = await generateSlide(apiKey, base64Image, segments[i], style, numSlides, model, styleRefBase64);
+          if (cancelRef.current) break;
+          setSlides((prev) => [
+            ...prev,
+            {
+              index: i,
+              role: segments[i].role,
+              text: segments[i].text,
+              imageData,
+            },
+          ]);
+          addLog(`✓ Slide ${i + 1} generado exitosamente.`);
+        } catch (err) {
+          if (cancelRef.current) break;
+          addLog(`✗ Error en Slide ${i + 1}: ${err.message}`);
+          setSlides((prev) => [
+            ...prev,
+            { index: i, role: segments[i].role, text: segments[i].text, imageData: null, error: err.message },
+          ]);
+        }
+
+        // Small delay between calls to respect rate limits
+        if (i < segments.length - 1 && !cancelRef.current) {
+          addLog("Esperando 2s antes de la siguiente llamada...");
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+
+      if (!cancelRef.current) addLog("¡Generación completa!");
+    } catch (err) {
+      setError(err.message);
+      addLog(`ERROR FATAL: ${err.message}`);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const completedSlides = slides.filter((s) => s.imageData);
 
   return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(160deg, #080808 0%, #0d0d15 40%, #0a0812 100%)", color:"#e8e0d0", fontFamily:"'Segoe UI', system-ui, sans-serif" }}>
-      <header style={{ padding:"24px 36px 20px", borderBottom:"1px solid rgba(212,168,83,0.15)" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ width:40, height:40, background:"linear-gradient(135deg, #d4a853, #8a6d2b)", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:"bold", color:"#0a0a0a" }}>C</div>
-          <div>
-            <h1 style={{ margin:0, fontSize:20, fontWeight:700, color:"#d4a853", letterSpacing:1 }}>CAROUSEL STUDIO</h1>
-            <p style={{ margin:0, fontSize:11, color:"#8a7a5a", letterSpacing:3, textTransform:"uppercase" }}>Generador de carruseles con IA</p>
-          </div>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "linear-gradient(145deg, #0a0a0f 0%, #12121f 40%, #0d1117 100%)",
+        color: "#e4e4e7",
+        fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          borderBottom: "1px solid rgba(139, 92, 246, 0.2)",
+          padding: "16px 24px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          background: "rgba(139, 92, 246, 0.03)",
+        }}
+      >
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: "linear-gradient(135deg, #8b5cf6, #ec4899)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 18,
+            fontWeight: 800,
+          }}
+        >
+          🍌
         </div>
-      </header>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em" }}>
+            Nano Banano <span style={{ color: "#8b5cf6" }}>Carousel Generator</span>
+          </h1>
+          <p style={{ margin: 0, fontSize: 11, color: "#71717a", letterSpacing: "0.05em" }}>
+            GEMINI 2.5 FLASH · IMAGE GENERATION · INSTAGRAM CAROUSELS
+          </p>
+        </div>
+      </div>
 
-      <div style={{ display:"flex", minHeight:"calc(100vh - 84px)" }}>
-        {/* LEFT */}
-        <div style={{ width:460, padding:"24px", borderRight:"1px solid rgba(212,168,83,0.1)", overflowY:"auto", flexShrink:0 }}>
+      <div style={{ display: "flex", minHeight: "calc(100vh - 69px)" }}>
+        {/* ============ LEFT PANEL: CONFIGURATION ============ */}
+        <div
+          style={{
+            width: 380,
+            minWidth: 380,
+            borderRight: "1px solid rgba(139, 92, 246, 0.15)",
+            padding: 20,
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
+          {/* API Key */}
+          <FieldGroup label="API Key" sublabel="Google AI Studio">
+            <div style={{ position: "relative" }}>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => handleApiKeyChange(e.target.value)}
+                placeholder="AIza..."
+                style={inputStyle}
+              />
+              {apiKeySaved && apiKey && (
+                <span style={{
+                  position: "absolute",
+                  right: 10,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  fontSize: 10,
+                  color: "#4ade80",
+                  fontWeight: 600,
+                }}>
+                  ✓ Guardada
+                </span>
+              )}
+            </div>
+          </FieldGroup>
 
-          {/* Expert */}
-          <label style={lbl}>Foto del experto <span style={{ textTransform:"none", letterSpacing:0, color:"#5a5040" }}>(opcional)</span></label>
-          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:18, padding:12, background:"rgba(255,255,255,0.02)", border:"1px dashed rgba(212,168,83,0.2)", borderRadius:10 }}>
-            {expertPhoto ? (
-              <>
-                <div style={{ width:52, height:52, borderRadius:"50%", overflow:"hidden", border:"2px solid rgba(212,168,83,0.4)", flexShrink:0 }}>
-                  <img src={expertPhoto.preview} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} />
-                </div>
-                <div style={{ flex:1 }}>
-                  <p style={{ margin:0, fontSize:13, color:"#c9b99a" }}>Foto cargada</p>
-                </div>
-                <button onClick={()=>{setExpertPhoto(null);if(fileRef.current)fileRef.current.value="";}} style={{ padding:"4px 10px", background:"rgba(255,80,80,0.1)", border:"1px solid rgba(255,80,80,0.3)", borderRadius:6, color:"#ff6b6b", fontSize:11, cursor:"pointer" }}>✕</button>
-              </>
-            ) : (
-              <div onClick={()=>fileRef.current?.click()} style={{ flex:1, textAlign:"center", cursor:"pointer", padding:"6px 0" }}>
-                <span style={{ fontSize:24, opacity:0.5 }}>📷</span>
-                <p style={{ margin:"4px 0 0", fontSize:13, color:"#8a7a5a" }}>Click para subir foto</p>
+          {/* Model Selector */}
+          <FieldGroup label="Modelo" sublabel="Nano Banano version">
+            <select value={model} onChange={(e) => setModel(e.target.value)} style={inputStyle}>
+              <option value="gemini-2.5-flash-image">🍌 Nano Banana (gemini-2.5-flash-image)</option>
+              <option value="gemini-3.1-flash-image-preview">🍌2 Nano Banana 2 (gemini-3.1-flash-image-preview)</option>
+              <option value="gemini-3-pro-image-preview">🍌 Pro (gemini-3-pro-image-preview)</option>
+            </select>
+          </FieldGroup>
+
+          {/* Expert Photo Upload */}
+          <FieldGroup label="Foto del Experto" sublabel="Referencia de identidad para todos los slides">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                border: "2px dashed rgba(139, 92, 246, 0.3)",
+                borderRadius: 12,
+                padding: expertPreview ? 0 : 24,
+                textAlign: "center",
+                cursor: "pointer",
+                overflow: "hidden",
+                transition: "border-color 0.2s",
+                background: "rgba(139, 92, 246, 0.05)",
+                position: "relative",
+              }}
+            >
+              {expertPreview ? (
+                <img
+                  src={expertPreview}
+                  alt="Expert"
+                  style={{ width: "100%", maxHeight: 200, objectFit: "cover", display: "block" }}
+                />
+              ) : (
+                <>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>📸</div>
+                  <div style={{ fontSize: 13, color: "#71717a" }}>Click para subir imagen</div>
+                  <div style={{ fontSize: 11, color: "#52525b", marginTop: 4 }}>JPG, PNG • Max 10MB</div>
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoUpload}
+                style={{ display: "none" }}
+              />
+            </div>
+          </FieldGroup>
+
+          {/* Keyword + Number of slides row */}
+          <div style={{ display: "flex", gap: 12 }}>
+            <FieldGroup label="Palabra Clave" sublabel="Para el CTA final" style={{ flex: 1 }}>
+              <input
+                type="text"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="Ej: GRATIS"
+                style={inputStyle}
+              />
+            </FieldGroup>
+            <FieldGroup label="Slides" sublabel="Cantidad" style={{ width: 90 }}>
+              <select value={numSlides} onChange={(e) => setNumSlides(Number(e.target.value))} style={inputStyle}>
+                {[3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </FieldGroup>
+          </div>
+
+          {/* Visual Style */}
+          <FieldGroup label="Estilo Visual" sublabel="Estética base de los slides">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {Object.entries(STYLES).map(([key, { label }]) => (
+                <button
+                  key={key}
+                  onClick={() => setStyle(key)}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: style === key ? "2px solid #8b5cf6" : "1px solid rgba(255,255,255,0.08)",
+                    background: style === key ? "rgba(139, 92, 246, 0.15)" : "rgba(255,255,255,0.03)",
+                    color: style === key ? "#c4b5fd" : "#a1a1aa",
+                    fontSize: 12,
+                    fontWeight: style === key ? 600 : 400,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    textAlign: "left",
+                    gridColumn: key === "libre" ? "1 / -1" : "auto",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </FieldGroup>
+
+          {/* Style Reference Upload — only shown when "libre" is selected */}
+          {style === "libre" && (
+            <FieldGroup label="Referencia Visual" sublabel="Subí una imagen con el estilo que querés replicar">
+              <div
+                onClick={() => styleRefInputRef.current?.click()}
+                style={{
+                  border: "2px dashed rgba(236, 72, 153, 0.3)",
+                  borderRadius: 12,
+                  padding: styleRefPreview ? 0 : 16,
+                  textAlign: "center",
+                  cursor: "pointer",
+                  overflow: "hidden",
+                  transition: "border-color 0.2s",
+                  background: "rgba(236, 72, 153, 0.05)",
+                }}
+              >
+                {styleRefPreview ? (
+                  <img
+                    src={styleRefPreview}
+                    alt="Style ref"
+                    style={{ width: "100%", maxHeight: 140, objectFit: "cover", display: "block" }}
+                  />
+                ) : (
+                  <>
+                    <div style={{ fontSize: 24, marginBottom: 4 }}>🎨</div>
+                    <div style={{ fontSize: 12, color: "#71717a" }}>Click para subir estilo visual</div>
+                  </>
+                )}
+                <input
+                  ref={styleRefInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleStyleRefUpload}
+                  style={{ display: "none" }}
+                />
               </div>
-            )}
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={async(e)=>{const f=e.target.files?.[0];if(!f)return;setExpertPhoto({base64:await fileToBase64(f),mimeType:f.type,preview:URL.createObjectURL(f)});}} style={{ display:"none" }} />
-          </div>
+            </FieldGroup>
+          )}
 
-          {/* Keyword */}
-          <div style={{ marginBottom:18 }}>
-            <label style={lbl}>Palabra clave CTA <span style={{ textTransform:"none", letterSpacing:0, color:"#5a5040" }}>(opcional — aparece en el último slide)</span></label>
-            <input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="Ej: CLASE" style={inp} />
-          </div>
+          {/* Script */}
+          <FieldGroup label="Guion del Carrusel" sublabel="El texto completo a distribuir en los slides">
+            <textarea
+              value={script}
+              onChange={(e) => setScript(e.target.value)}
+              placeholder={`Slide 1: ¿Sabías que el 90% de los negocios fracasan en el primer año?\n\nSlide 2: El problema es que nadie te enseña a vender...\n\nSlide 3: Con nuestro método probado vas a...\n\nSlide 4: Más de 500 alumnos ya lo lograron...\n\nSlide 5: Comenta GRATIS y te envío la guía completa`}
+              rows={8}
+              style={{ ...inputStyle, resize: "vertical", minHeight: 140, lineHeight: 1.5 }}
+            />
+          </FieldGroup>
 
-          {/* Slides */}
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-            <label style={{ ...lbl, margin:0 }}>Slides ({slides.length})</label>
-            <button onClick={addSlide} style={{ padding:"6px 14px", background:"rgba(212,168,83,0.12)", border:"1px solid rgba(212,168,83,0.3)", borderRadius:6, color:"#d4a853", fontSize:13, cursor:"pointer", fontWeight:600 }}>+ Agregar slide</button>
-          </div>
-
-          {slides.map((slide, si) => {
-            const fmt = FORMATS.find(f=>f.id===slide.formatId);
+          {/* Cost Estimator */}
+          {(() => {
+            const pricing = {
+              "gemini-2.5-flash-image": { perImage: 0.039, label: "Nano Banana" },
+              "gemini-3.1-flash-image-preview": { perImage: 0.067, label: "Nano Banana 2" },
+              "gemini-3-pro-image-preview": { perImage: 0.134, label: "Nano Banana Pro" },
+            };
+            const p = pricing[model] || pricing["gemini-2.5-flash-image"];
+            const total = (p.perImage * numSlides).toFixed(2);
+            const perImg = p.perImage.toFixed(3);
             return (
-              <div key={si} style={{ marginBottom:14, padding:16, background:"rgba(255,255,255,0.02)", border:"1px solid rgba(212,168,83,0.12)", borderRadius:10 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                  <span style={{ fontSize:13, fontWeight:600, color:"#d4a853" }}>Slide {si+1}</span>
-                  {slides.length > 1 && (
-                    <button onClick={()=>removeSlide(si)} style={{ padding:"2px 8px", background:"none", border:"1px solid rgba(255,80,80,0.25)", borderRadius:4, color:"#ff6b6b", fontSize:11, cursor:"pointer" }}>✕</button>
-                  )}
-                </div>
+              <div
+                style={{
+                  background: "rgba(139, 92, 246, 0.06)",
+                  border: "1px solid rgba(139, 92, 246, 0.15)",
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ fontSize: 11, color: "#a1a1aa" }}>
+                  {p.label} · {numSlides} slides · ${perImg}/img
+                </span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#c4b5fd" }}>
+                  ~${total}
+                </span>
+              </div>
+            );
+          })()}
 
-                {/* Format selector */}
-                <div style={{ display:"flex", gap:4, marginBottom:12, flexWrap:"wrap" }}>
-                  {FORMATS.map(f => (
-                    <button key={f.id} onClick={()=>updateSlide(si,"formatId",f.id)} style={{
-                      padding:"6px 10px", fontSize:12,
-                      background: slide.formatId===f.id ? "rgba(212,168,83,0.18)" : "rgba(255,255,255,0.03)",
-                      border: slide.formatId===f.id ? "1px solid rgba(212,168,83,0.5)" : "1px solid rgba(255,255,255,0.06)",
-                      borderRadius:6, cursor:"pointer", color:"#e8e0d0", fontFamily:"inherit",
-                      fontWeight: slide.formatId===f.id ? 600 : 400,
-                    }}>{f.name}</button>
-                  ))}
-                </div>
+          {/* Generate + Cancel Buttons */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={generating ? handleCancel : handleGenerate}
+              style={{
+                flex: 1,
+                padding: "14px 20px",
+                borderRadius: 12,
+                border: "none",
+                background: generating
+                  ? "rgba(139, 92, 246, 0.3)"
+                  : "linear-gradient(135deg, #8b5cf6, #7c3aed)",
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: "pointer",
+                letterSpacing: "0.02em",
+                transition: "all 0.2s",
+                boxShadow: generating ? "none" : "0 4px 20px rgba(139, 92, 246, 0.3)",
+              }}
+            >
+              {generating ? `Generando Slide ${currentSlide}/${totalToGenerate}...` : "🍌 Generar Carrusel Maestro"}
+            </button>
+            {generating && (
+              <button
+                onClick={handleCancel}
+                style={{
+                  padding: "14px 16px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(239, 68, 68, 0.4)",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  color: "#f87171",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                ✕ Cancelar
+              </button>
+            )}
+          </div>
 
-                {/* Dynamic fields */}
-                {fmt.fields.map(field => (
-                  <div key={field.key} style={{ marginBottom:8 }}>
-                    <label style={{ display:"block", fontSize:11, color:"#8a7a5a", marginBottom:4 }}>{field.label}</label>
-                    {field.key.includes("Scene") || field.key === "scene" ? (
-                      <textarea
-                        value={slide.fields[field.key]||""}
-                        onChange={e=>updateSlide(si, field.key, e.target.value)}
-                        placeholder={field.placeholder}
-                        rows={2}
-                        style={{ ...inp, fontSize:13, resize:"vertical", lineHeight:1.5 }}
-                      />
-                    ) : (
-                      <input
-                        value={slide.fields[field.key]||""}
-                        onChange={e=>updateSlide(si, field.key, e.target.value)}
-                        placeholder={field.placeholder}
-                        style={{ ...inp, fontSize:13 }}
-                      />
-                    )}
+          {/* Error */}
+          {error && (
+            <div
+              style={{
+                background: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                borderRadius: 8,
+                padding: "10px 14px",
+                fontSize: 12,
+                color: "#fca5a5",
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Progress Log */}
+          {log.length > 0 && (
+            <FieldGroup label="Log de Generación">
+              <div
+                style={{
+                  background: "rgba(0,0,0,0.4)",
+                  borderRadius: 8,
+                  padding: 12,
+                  maxHeight: 180,
+                  overflowY: "auto",
+                  fontSize: 11,
+                  fontFamily: "'SF Mono', 'Fira Code', monospace",
+                  lineHeight: 1.7,
+                  color: "#a1a1aa",
+                }}
+              >
+                {log.map((l, i) => (
+                  <div key={i} style={{ color: l.includes("✓") ? "#4ade80" : l.includes("✗") ? "#f87171" : "#a1a1aa" }}>
+                    {l}
                   </div>
                 ))}
               </div>
-            );
-          })}
-
-          {/* Generate */}
-          <button onClick={generate} disabled={generating || slides.length < 1} style={{
-            width:"100%", marginTop:8, padding:"16px",
-            background: generating ? "rgba(212,168,83,0.2)" : "linear-gradient(135deg, #d4a853, #a88230)",
-            border:"none", borderRadius:10, color: generating ? "#a89870" : "#0a0a0a",
-            fontSize:16, fontWeight:700, cursor: generating ? "not-allowed" : "pointer",
-            letterSpacing:1, textTransform:"uppercase",
-          }}>{generating ? "Generando..." : `Generar ${slides.length} Slides`}</button>
-
-          {generating && (
-            <div style={{ marginTop:16 }}>
-              <div style={{ height:4, background:"rgba(255,255,255,0.06)", borderRadius:2, overflow:"hidden" }}>
-                <div style={{ height:"100%", background:"linear-gradient(90deg, #d4a853, #e8c468)", width: total?`${(progress/total)*100}%`:"0%", transition:"width 0.5s", borderRadius:2 }} />
-              </div>
-              <p style={{ marginTop:8, fontSize:12, color:"#8a7a5a" }}>{status}</p>
-            </div>
+            </FieldGroup>
           )}
-          {!generating && status && <p style={{ marginTop:12, fontSize:12, color: status.includes("Error")?"#e85555":status.includes("sin")?"#e8a849":"#6abf6a" }}>{status}</p>}
         </div>
 
-        {/* RIGHT */}
-        <div style={{ flex:1, padding:"24px 36px", display:"flex", flexDirection:"column", alignItems:"center" }}>
-          {images.length===0 && !generating && (
-            <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", color:"#4a4535", textAlign:"center", maxWidth:400 }}>
-              <div style={{ fontSize:52, marginBottom:14, opacity:0.3 }}>🎨</div>
-              <p style={{ fontSize:17, margin:0 }}>Tu carrusel aparecerá aquí</p>
-              <p style={{ fontSize:13, marginTop:8, color:"#3a3525", lineHeight:1.5 }}>Agregá slides, elegí el formato de cada uno y hacé click en Generar</p>
-            </div>
-          )}
-
-          {images.length > 0 && (
+        {/* ============ RIGHT PANEL: SLIDE VIEWER ============ */}
+        <div style={{ flex: 1, padding: 24, overflowY: "auto" }}>
+          {slides.length === 0 && !generating ? (
+            <EmptyState />
+          ) : (
             <>
-              <div style={{ width:"100%", maxWidth:500, aspectRatio:"1", borderRadius:12, overflow:"hidden", boxShadow:"0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(212,168,83,0.1)" }}>
-                <img src={images[idx]?.dataUrl} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
-              </div>
-
-              <div style={{ display:"flex", alignItems:"center", gap:14, marginTop:18 }}>
-                <button onClick={()=>setIdx(Math.max(0,idx-1))} disabled={idx===0} style={{ padding:"6px 14px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(212,168,83,0.2)", borderRadius:6, color:"#d4a853", cursor:idx===0?"not-allowed":"pointer", fontSize:16, opacity:idx===0?0.3:1 }}>←</button>
-                <span style={{ fontSize:13, color:"#8a7a5a", minWidth:70, textAlign:"center" }}>{idx+1} / {images.length}</span>
-                <button onClick={()=>setIdx(Math.min(images.length-1,idx+1))} disabled={idx===images.length-1} style={{ padding:"6px 14px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(212,168,83,0.2)", borderRadius:6, color:"#d4a853", cursor:idx===images.length-1?"not-allowed":"pointer", fontSize:16, opacity:idx===images.length-1?0.3:1 }}>→</button>
-              </div>
-
-              <div style={{ display:"flex", gap:6, marginTop:14, flexWrap:"wrap", justifyContent:"center" }}>
-                {images.map((img,i) => (
-                  <button key={i} onClick={()=>setIdx(i)} style={{ width:54, height:54, padding:0, border:idx===i?"2px solid #d4a853":img.failed?"2px solid rgba(232,168,73,0.3)":"2px solid rgba(255,255,255,0.08)", borderRadius:6, overflow:"hidden", cursor:"pointer", opacity:idx===i?1:0.55, background:"none" }}>
-                    <img src={img.dataUrl} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
+              {/* Download All */}
+              {completedSlides.length > 1 && (
+                <div style={{ marginBottom: 20, display: "flex", justifyContent: "flex-end" }}>
+                  <button onClick={() => downloadAllAsZip(completedSlides)} style={secondaryBtnStyle}>
+                    📦 Descargar Todo (ZIP)
                   </button>
-                ))}
-              </div>
+                </div>
+              )}
 
-              <div style={{ display:"flex", gap:10, marginTop:20, flexWrap:"wrap", justifyContent:"center" }}>
-                <button onClick={downloadZip} style={{ padding:"12px 28px", background:"linear-gradient(135deg, #d4a853, #a88230)", border:"none", borderRadius:8, color:"#0a0a0a", fontSize:14, fontWeight:700, cursor:"pointer" }}>⬇ Descargar ZIP</button>
-                <button onClick={()=>retrySlide(idx)} disabled={generating} style={{ padding:"12px 20px", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(212,168,83,0.3)", borderRadius:8, color:"#d4a853", fontSize:14, cursor:"pointer" }}>🔄 Regenerar slide {idx+1}</button>
+              {/* Slides Grid — compact layout, 3 per row */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {slides.map((slide, i) => (
+                  <SlideCard key={i} slide={slide} />
+                ))}
+
+                {/* Placeholder for slides being generated */}
+                {generating &&
+                  Array.from({ length: totalToGenerate - slides.length }).map((_, i) => (
+                    <div
+                      key={`placeholder-${i}`}
+                      style={{
+                        aspectRatio: "1",
+                        borderRadius: 8,
+                        border: "1px dashed rgba(139, 92, 246, 0.2)",
+                        background: "rgba(139, 92, 246, 0.03)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 20,
+                          height: 20,
+                          border: "2px solid rgba(139, 92, 246, 0.15)",
+                          borderTopColor: "#8b5cf6",
+                          borderRadius: "50%",
+                          animation: "spin 1s linear infinite",
+                        }}
+                      />
+                      <span style={{ fontSize: 10, color: "#52525b" }}>
+                        S{slides.length + i + 1}
+                      </span>
+                    </div>
+                  ))}
               </div>
             </>
           )}
         </div>
       </div>
-      <canvas ref={canvasRef} style={{ display:"none" }} />
+
+      {/* Spinner keyframes */}
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        input::placeholder, textarea::placeholder { color: #52525b; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.2); border-radius: 3px; }
+      `}</style>
     </div>
   );
 }
+
+// ============ SUB-COMPONENTS ============
+
+function FieldGroup({ label, sublabel, children, style: wrapperStyle }) {
+  return (
+    <div style={wrapperStyle}>
+      <label style={{ display: "block", marginBottom: 6 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#d4d4d8" }}>{label}</span>
+        {sublabel && <span style={{ fontSize: 11, color: "#52525b", marginLeft: 8 }}>{sublabel}</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function SlideCard({ slide }) {
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        overflow: "hidden",
+        border: "1px solid rgba(139, 92, 246, 0.15)",
+        background: "rgba(255,255,255,0.02)",
+        animation: "fadeIn 0.4s ease",
+      }}
+    >
+      {/* Slide header — compact */}
+      <div
+        style={{
+          padding: "4px 8px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: "rgba(139, 92, 246, 0.06)",
+          borderBottom: "1px solid rgba(139, 92, 246, 0.1)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              padding: "1px 6px",
+              borderRadius: 3,
+              background:
+                slide.role === "HOOK"
+                  ? "rgba(234, 179, 8, 0.2)"
+                  : slide.role === "CTA"
+                  ? "rgba(34, 197, 94, 0.2)"
+                  : slide.role === "PROBLEM"
+                  ? "rgba(239, 68, 68, 0.2)"
+                  : "rgba(59, 130, 246, 0.2)",
+              color:
+                slide.role === "HOOK"
+                  ? "#fbbf24"
+                  : slide.role === "CTA"
+                  ? "#4ade80"
+                  : slide.role === "PROBLEM"
+                  ? "#f87171"
+                  : "#60a5fa",
+              letterSpacing: "0.06em",
+            }}
+          >
+            {slide.role}
+          </span>
+          <span style={{ fontSize: 10, color: "#71717a" }}>S{slide.index + 1}</span>
+        </div>
+        {slide.imageData && (
+          <button
+            onClick={() => downloadImage(slide.imageData, `slide_${slide.index + 1}.png`)}
+            style={{
+              background: "none",
+              border: "1px solid rgba(139, 92, 246, 0.3)",
+              borderRadius: 4,
+              padding: "2px 6px",
+              fontSize: 9,
+              color: "#8b5cf6",
+              cursor: "pointer",
+            }}
+          >
+            ↓
+          </button>
+        )}
+      </div>
+
+      {/* Slide content */}
+      {slide.imageData ? (
+        <img src={slide.imageData} alt={`Slide ${slide.index + 1}`} style={{ width: "100%", display: "block" }} />
+      ) : slide.error ? (
+        <div
+          style={{
+            aspectRatio: "1",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+            textAlign: "center",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 20, marginBottom: 4 }}>⚠️</div>
+            <div style={{ fontSize: 10, color: "#f87171", lineHeight: 1.4 }}>{slide.error}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Text preview — compact */}
+      <div
+        style={{
+          padding: "4px 8px",
+          fontSize: 9,
+          color: "#71717a",
+          borderTop: "1px solid rgba(255,255,255,0.04)",
+          lineHeight: 1.3,
+          maxHeight: 36,
+          overflow: "hidden",
+        }}
+      >
+        {slide.text?.substring(0, 80)}
+        {slide.text?.length > 80 ? "..." : ""}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+        padding: 40,
+        opacity: 0.6,
+      }}
+    >
+      <div style={{ fontSize: 56, marginBottom: 16 }}>🍌</div>
+      <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: "#d4d4d8" }}>
+        Tu carrusel te espera
+      </h2>
+      <p style={{ fontSize: 13, color: "#71717a", maxWidth: 360, lineHeight: 1.6 }}>
+        Configura los parámetros a la izquierda: sube la foto del experto, pega tu guion y presiona
+        "Generar Carrusel Maestro" para que Nano Banano haga su magia.
+      </p>
+      <div
+        style={{
+          marginTop: 24,
+          display: "flex",
+          gap: 20,
+          fontSize: 11,
+          color: "#52525b",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 20, marginBottom: 4 }}>📸</div>
+          Sube foto
+        </div>
+        <div style={{ color: "#3f3f46" }}>→</div>
+        <div>
+          <div style={{ fontSize: 20, marginBottom: 4 }}>📝</div>
+          Pega guion
+        </div>
+        <div style={{ color: "#3f3f46" }}>→</div>
+        <div>
+          <div style={{ fontSize: 20, marginBottom: 4 }}>🎨</div>
+          Genera slides
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ SHARED STYLES ============
+
+const inputStyle = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 8,
+  border: "1px solid rgba(255,255,255,0.08)",
+  background: "rgba(255,255,255,0.04)",
+  color: "#e4e4e7",
+  fontSize: 13,
+  outline: "none",
+  boxSizing: "border-box",
+  transition: "border-color 0.2s",
+};
+
+const secondaryBtnStyle = {
+  padding: "8px 16px",
+  borderRadius: 8,
+  border: "1px solid rgba(139, 92, 246, 0.3)",
+  background: "rgba(139, 92, 246, 0.1)",
+  color: "#c4b5fd",
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer",
+};
