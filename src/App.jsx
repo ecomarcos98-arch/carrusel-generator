@@ -324,7 +324,7 @@ export default function App() {
   const [slideText, setSlideText] = useState("");
   const [keyword, setKeyword] = useState("");
   const [selectedStyle, setSelectedStyle] = useState("gta");
-  const [expertPhoto, setExpertPhoto] = useState(null);
+  const [expertPhotos, setExpertPhotos] = useState([]); // array of {base64, mimeType, preview}
   const [status, setStatus] = useState("");
   const [progress, setProgress] = useState(0);
   const [totalSteps, setTotalSteps] = useState(0);
@@ -340,22 +340,34 @@ export default function App() {
   const style = IMAGE_STYLES.find((s) => s.id === selectedStyle);
   const parsed = parseSlides(slideText);
   const count = parsed.length;
+  const hasExpert = expertPhotos.length > 0;
 
   const handleUpload = useCallback(async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setExpertPhoto({ base64: await fileToBase64(f), mimeType: f.type, preview: URL.createObjectURL(f) });
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const newPhotos = [];
+    for (const f of files) {
+      if (expertPhotos.length + newPhotos.length >= 4) break;
+      newPhotos.push({ base64: await fileToBase64(f), mimeType: f.type, preview: URL.createObjectURL(f) });
+    }
+    setExpertPhotos(prev => [...prev, ...newPhotos].slice(0, 4));
+    if (fileRef.current) fileRef.current.value = "";
+  }, [expertPhotos]);
+
+  const removeExpertPhoto = useCallback((index) => {
+    setExpertPhotos(prev => prev.filter((_, i) => i !== index));
   }, []);
 
   const buildImagePrompt = useCallback((sceneDesc, styleObj, hasExpert) => {
+    const expertStrong = "The character MUST be the EXACT person shown in the reference photos. Copy their precise face shape, jawline, nose, eyes, eyebrows, hair style, hair color, facial hair, skin tone, and body build. The person in the output MUST be immediately recognizable as the person in the reference photos. Do NOT change their appearance. Multiple reference photos are provided for accuracy — use ALL of them.";
+
     if (styleObj.isLibre) {
-      // Libre mode: use the reference style image
-      const base = `Generate an image based on this scene: "${sceneDesc}". Match the visual style of the reference image exactly (color palette, illustration technique, composition style).`;
-      const expertPart = hasExpert ? " The main character must look exactly like the person in the expert reference photo, preserving facial features." : "";
+      const base = `Generate an image based on this scene: "${sceneDesc}". Match the visual style of the style reference image exactly (color palette, illustration technique, composition style).`;
+      const expertPart = hasExpert ? ` ${expertStrong}` : "";
       return `${base}${expertPart} Square format 1:1. Do NOT include any text, words, letters, numbers, or captions in the image.`;
     }
     if (hasExpert) {
-      return `Generate an image based on this scene: "${sceneDesc}". The main character must look exactly like the person in the reference photo — ${styleObj.expertPrompt}. Place them naturally in the scene. ${styleObj.prompt}. Square format 1:1. Do NOT include any text, words, letters, numbers, or captions in the image.`;
+      return `Generate an image based on this scene: "${sceneDesc}". ${expertStrong} ${styleObj.expertPrompt}. Place them naturally in the scene. ${styleObj.prompt}. Square format 1:1. Do NOT include any text, words, letters, numbers, or captions in the image.`;
     }
     return `Generate an image: "${sceneDesc}". ${styleObj.prompt}. Include a professional-looking person as the main subject if the scene implies one. Square format 1:1. Do NOT include any text, words, letters, numbers, or captions in the image.`;
   }, []);
@@ -377,9 +389,9 @@ export default function App() {
         let bgB64 = null;
         const scenePrompt = scene || "professional sales leader in a modern office";
         try {
-          const prompt = buildImagePrompt(scenePrompt, style, !!expertPhoto);
+          const prompt = buildImagePrompt(scenePrompt, style, hasExpert);
           const refImages = [];
-          if (expertPhoto) refImages.push({ base64: expertPhoto.base64, mimeType: expertPhoto.mimeType });
+          for (const ep of expertPhotos) refImages.push({ base64: ep.base64, mimeType: ep.mimeType });
           if (style.isLibre && libreRef) refImages.push({ base64: libreRef.base64, mimeType: libreRef.mimeType });
           bgB64 = await geminiImage(prompt, refImages, apiKey);
         } catch (err) {
@@ -399,7 +411,7 @@ export default function App() {
     } finally {
       setGenerating(false);
     }
-  }, [parsed, count, keyword, style, selectedStyle, expertPhoto, buildImagePrompt, apiKey, libreRef]);
+  }, [parsed, count, keyword, style, selectedStyle, expertPhotos, hasExpert, buildImagePrompt, apiKey, libreRef]);
 
   const retrySlide = useCallback(async (si) => {
     if (!parsed[si]) return;
@@ -409,9 +421,9 @@ export default function App() {
     const { scene, text } = parsed[si];
 
     try {
-      const prompt = buildImagePrompt(scene || "professional in office", style, !!expertPhoto);
+      const prompt = buildImagePrompt(scene || "professional in office", style, hasExpert);
       const refImages = [];
-      if (expertPhoto) refImages.push({ base64: expertPhoto.base64, mimeType: expertPhoto.mimeType });
+      for (const ep of expertPhotos) refImages.push({ base64: ep.base64, mimeType: ep.mimeType });
       if (style.isLibre && libreRef) refImages.push({ base64: libreRef.base64, mimeType: libreRef.mimeType });
       const bgB64 = await geminiImage(prompt, refImages, apiKey);
       const dataUrl = await renderSlide(canvas, bgB64, text, si, count, keyword, selectedStyle);
@@ -424,7 +436,7 @@ export default function App() {
     } finally {
       setGenerating(false);
     }
-  }, [parsed, count, keyword, style, selectedStyle, expertPhoto, images, buildImagePrompt, apiKey, libreRef]);
+  }, [parsed, count, keyword, style, selectedStyle, expertPhotos, hasExpert, images, buildImagePrompt, apiKey, libreRef]);
 
   const downloadZip = useCallback(() => {
     const f = images.map((img, i) => ({
@@ -478,27 +490,45 @@ export default function App() {
           </p>
 
           {/* Expert */}
-          <label style={lbl}>Foto del experto <span style={{ fontSize: 11, color: "#6a5f48", textTransform: "none", letterSpacing: 0 }}>(opcional)</span></label>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20, padding: 14, background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(212,168,83,0.25)", borderRadius: 10 }}>
-            {expertPhoto ? (
+          <label style={lbl}>Fotos del experto <span style={{ fontSize: 11, color: "#6a5f48", textTransform: "none", letterSpacing: 0 }}>(1 obligatoria + hasta 3 opcionales)</span></label>
+          <div style={{ marginBottom: 20, padding: 14, background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(212,168,83,0.25)", borderRadius: 10 }}>
+            {expertPhotos.length > 0 ? (
               <>
-                <div style={{ width: 60, height: 60, borderRadius: "50%", overflow: "hidden", border: "2px solid rgba(212,168,83,0.4)", flexShrink: 0 }}>
-                  <img src={expertPhoto.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                  {expertPhotos.map((ep, i) => (
+                    <div key={i} style={{ position: "relative" }}>
+                      <div style={{ width: 72, height: 72, borderRadius: 10, overflow: "hidden", border: i === 0 ? "2px solid #d4a853" : "2px solid rgba(212,168,83,0.25)" }}>
+                        <img src={ep.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                      <button onClick={() => removeExpertPhoto(i)} style={{
+                        position: "absolute", top: -6, right: -6, width: 20, height: 20,
+                        borderRadius: "50%", background: "#ff4444", border: "none",
+                        color: "#fff", fontSize: 11, cursor: "pointer", display: "flex",
+                        alignItems: "center", justifyContent: "center", lineHeight: 1,
+                      }}>✕</button>
+                      {i === 0 && <span style={{ position: "absolute", bottom: -4, left: "50%", transform: "translateX(-50%)", fontSize: 9, color: "#d4a853", background: "#0d0d15", padding: "1px 5px", borderRadius: 4 }}>principal</span>}
+                    </div>
+                  ))}
+                  {expertPhotos.length < 4 && (
+                    <div onClick={() => fileRef.current?.click()} style={{
+                      width: 72, height: 72, borderRadius: 10, border: "1px dashed rgba(212,168,83,0.3)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer", fontSize: 24, color: "#5a5040",
+                    }}>+</div>
+                  )}
                 </div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: 0, fontSize: 14, color: "#c9b99a" }}>Foto cargada</p>
-                  <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6a5f48" }}>Aparecerá como personaje en cada slide</p>
-                </div>
-                <button onClick={() => { setExpertPhoto(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ padding: "6px 12px", background: "rgba(255,80,80,0.1)", border: "1px solid rgba(255,80,80,0.3)", borderRadius: 6, color: "#ff6b6b", fontSize: 12, cursor: "pointer" }}>✕</button>
+                <p style={{ margin: 0, fontSize: 11, color: "#6a5f48" }}>
+                  {expertPhotos.length}/4 fotos · Más fotos = mejor parecido
+                </p>
               </>
             ) : (
-              <div onClick={() => fileRef.current?.click()} style={{ flex: 1, textAlign: "center", cursor: "pointer", padding: "8px 0" }}>
+              <div onClick={() => fileRef.current?.click()} style={{ textAlign: "center", cursor: "pointer", padding: "8px 0" }}>
                 <div style={{ fontSize: 28, marginBottom: 4, opacity: 0.5 }}>📷</div>
-                <p style={{ margin: 0, fontSize: 14, color: "#8a7a5a" }}>Click para subir foto</p>
-                <p style={{ margin: "4px 0 0", fontSize: 11, color: "#5a5040" }}>El experto será el personaje principal</p>
+                <p style={{ margin: 0, fontSize: 14, color: "#8a7a5a" }}>Click para subir foto del experto</p>
+                <p style={{ margin: "4px 0 0", fontSize: 11, color: "#5a5040" }}>Subí varias fotos (distintos ángulos) para mejor parecido</p>
               </div>
             )}
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUpload} style={{ display: "none" }} />
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleUpload} style={{ display: "none" }} />
           </div>
 
           {/* Slides */}
@@ -601,9 +631,9 @@ TEXTO: ¿Querés la solución completa?`}
             </div>
           )}
 
-          {expertPhoto && (
+          {hasExpert && (
             <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(212,168,83,0.06)", border: "1px solid rgba(212,168,83,0.15)", borderRadius: 8, fontSize: 12, color: "#a89870" }}>
-              💡 El experto se integrará en estilo <strong style={{ color: "#d4a853" }}>{style.name}</strong>
+              💡 {expertPhotos.length} foto{expertPhotos.length > 1 ? "s" : ""} del experto en estilo <strong style={{ color: "#d4a853" }}>{style.name}</strong>
             </div>
           )}
 
